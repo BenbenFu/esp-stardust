@@ -1,0 +1,30 @@
+version: 1.0.0
+# Devices Configuration for Stardust Companion Robot
+#
+# Active devices:
+#   - led_strip   : onboard WS2812 RGB LED
+#   - ssd1306     : OLED display (custom capability, see cap_sdcard)
+#
+# The TF card is NOT a Board Manager device — it is initialized
+# directly by sdcard_vfs_init() in the esp_stardust_sd component,
+# which calls spi_bus_initialize(SPI2_HOST, ...) with the pins
+# defined in board_peripherals.yaml above.
+
+devices:
+
+  # ----------------------------------------------------------------
+  # Onboard WS2812 RGB LED
+  # ----------------------------------------------------------------
+  - name: led_strip
+    chip: ws2812
+    type: custom
+    version: default
+    init_skip: true
+    dependencies:
+      espressif/led_strip:
+        version: "^3.0"
+        public: true
+    config:
+      max_leds: 1
+    peripherals:
+      - name: rmt_tx

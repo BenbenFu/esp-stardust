@@ -1,0 +1,40 @@
+menu "ESP Stardust SD Card"
+
+    config STARDUST_SD_ENABLE
+        bool "Enable Stardust SD Card support"
+        default y
+        help
+            Enable custom SD card driver and FAT32 filesystem via SPI.
+            Uses a hand-written SD block driver compatible with picky TF cards
+            that fail with the standard esp_vfs_fat_sdspi stack.
+
+    config STARDUST_SD_SPI_HOST
+        int "SPI Host"
+        range 1 3
+        default 2
+        help
+            SPI peripheral to use. ESP32-S3 typically uses SPI2_HOST (FSPI).
+
+    config STARDUST_SD_CS_PIN
+        int "CS Pin"
+        default 10
+
+    config STARDUST_SD_MOSI_PIN
+        int "MOSI Pin"
+        default 11
+
+    config STARDUST_SD_MISO_PIN
+        int "MISO Pin"
+        default 17
+
+    config STARDUST_SD_SCK_PIN
+        int "SCK Pin"
+        default 18
+
+    config STARDUST_SD_MOUNT_POINT
+        string "Mount point"
+        default "/sdcard"
+        help
+            VFS mount point for the SD card.
+
+endmenu

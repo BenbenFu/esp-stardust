@@ -51,3 +51,6 @@ dependencies:
     path: ../../../components/common/esp_video
     matches:
     - if: $CONFIG{ESP_BOARD_DEV_CAMERA_SUPPORT} == True
+
+  esp_stardust_sd:
+    path: ../../../components/esp_stardust_sd

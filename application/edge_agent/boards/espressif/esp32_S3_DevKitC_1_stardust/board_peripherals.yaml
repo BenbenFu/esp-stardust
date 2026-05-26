@@ -1,0 +1,68 @@
+version: 1.0.0
+# Peripherals Configuration for Stardust Companion Robot
+#
+# Hardware:
+#   - ESP32-S3-DevKitC-1 N16R8 (16MB Flash, 8MB PSRAM)
+#   - TF Card (custom SD driver, SPI2_HOST)
+#   - SSD1306 128x64 OLED (I2C)
+#   - WS2812 onboard LED (RMT)
+
+peripherals:
+
+  # ----------------------------------------------------------------
+  # Onboard RGB LED (WS2812 on GPIO38)
+  # ----------------------------------------------------------------
+  - name: rmt_tx
+    type: rmt
+    role: tx
+    config:
+      gpio_num: 38
+      clk_src: RMT_CLK_SRC_DEFAULT
+      resolution_hz: 10000000
+      mem_block_symbols: 64
+      trans_queue_depth: 4
+      intr_priority: 1
+      flags:
+        invert_out: false
+        with_dma: true
+        io_loop_back: false
+        io_od_mode: false
+        allow_pd: false
+        init_level: false
+
+  # ----------------------------------------------------------------
+  # TF Card SPI (custom SDDriver, SPI2_HOST)
+  #   CS   → GPIO10
+  #   MOSI → GPIO11
+  #   MISO → GPIO17
+  #   SCK  → GPIO18
+  #
+  # NOTE: CS is managed manually by SDDriver (active-low GPIO),
+  #       so spics_io_num is -1 here. SDDriver calls gpio_set_level()
+  #       directly. This SPI bus entry is for reference / DMA config
+  #       only; actual bus_initialize is done inside sdcard_vfs_init().
+  # ----------------------------------------------------------------
+  - name: spi_sdcard
+    type: spi
+    role: master
+    config:
+      spi_bus_config:
+        spi_port: SPI2_HOST          # 0: SPI1_HOST, 1: SPI2_HOST, 2: SPI3_HOST
+        data0_io_num: 11             # MOSI
+        data1_io_num: 17             # MISO
+        sclk_io_num: 18              # SCK
+        max_transfer_sz: 4096
+
+  # ----------------------------------------------------------------
+  # OLED I2C (SSD1306 128x64, I2C port 0)
+  #   SDA → GPIO9
+  #   SCL → GPIO8
+  # ----------------------------------------------------------------
+  - name: i2c_oled
+    type: i2c
+    role: master
+    config:
+      port: 0
+      pins:
+        sda: 9
+        scl: 8
