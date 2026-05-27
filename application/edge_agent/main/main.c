@@ -20,6 +20,9 @@
 #include "esp_board_manager_includes.h"
 #include "captive_dns.h"
 #include "cmd_wifi.h"
+#if CONFIG_STARDUST_SD_ENABLE
+#include "sdcard_vfs.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #if CONFIG_APP_CLAW_CAP_IM_WECHAT
@@ -363,6 +366,14 @@ void app_main(void)
     init_timezone(app_config_get_timezone(s_config)); // no need to check error
     ESP_ERROR_CHECK(esp_board_manager_init());
     ESP_ERROR_CHECK(app_claw_ui_start());
+#if CONFIG_STARDUST_SD_ENABLE
+    sdcard_vfs_mount(CONFIG_STARDUST_SD_MOUNT_POINT,
+                     CONFIG_STARDUST_SD_SPI_HOST,
+                     CONFIG_STARDUST_SD_CS_PIN,
+                     CONFIG_STARDUST_SD_MOSI_PIN,
+                     CONFIG_STARDUST_SD_MISO_PIN,
+                     CONFIG_STARDUST_SD_SCK_PIN);
+#endif
     ESP_ERROR_CHECK(init_fatfs());
     ESP_ERROR_CHECK(init_ramfs());
     ESP_ERROR_CHECK(wifi_manager_init());

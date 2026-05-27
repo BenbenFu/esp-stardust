@@ -94,15 +94,25 @@ static uint8_t sd_send_cmd(sd_driver_t *sd, uint8_t cmd, uint32_t arg)
 
 static void sd_set_spi_freq(sd_driver_t *sd, int freq_hz)
 {
-    // Remove device and re-add with new frequency
-    spi_bus_remove_device(sd->spi);
+    esp_err_t err = spi_bus_remove_device(sd->spi);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "spi_bus_remove_device failed: %s, keeping %d Hz",
+                 esp_err_to_name(err), freq_hz <= 400000 ? 400000 : 10000000);
+        // If we can't remove the device, we can't change frequency.
+        // Continue at current speed — the card will work but slower.
+        return;
+    }
+
     spi_device_interface_config_t dev_cfg = {
         .mode = 0,
         .clock_speed_hz = freq_hz,
-        .spics_io_num = -1,  // manual CS
+        .spics_io_num = -1,
         .queue_size = 1,
     };
-    spi_bus_add_device((spi_host_device_t)sd->spi_host, &dev_cfg, &sd->spi);
+    err = spi_bus_add_device((spi_host_device_t)sd->spi_host, &dev_cfg, &sd->spi);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "spi_bus_add_device failed: %s", esp_err_to_name(err));
+    }
 }
 
 void sd_set_high_speed(sd_driver_t *sd)
@@ -140,7 +150,7 @@ bool sd_init(sd_driver_t *sd, spi_host_device_t spi_host,
         .quadhd_io_num = -1,
         .max_transfer_sz = 512,
     };
-    ESP_ERROR_CHECK(spi_bus_initialize(spi_host, &bus_cfg, SPI_DMA_CH_AUTO));
+    ESP_ERROR_CHECK(spi_bus_initialize(spi_host, &bus_cfg, 0));  // No DMA
 
     // Add device at 400 kHz for init
     spi_device_interface_config_t dev_cfg = {
