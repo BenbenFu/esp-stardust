@@ -1,0 +1,19 @@
+idf_component_register(
+    SRCS
+        "src/cap_diary.c"
+        "src/diary_state.c"
+        "src/diary_collect.c"
+        "src/diary_llm.c"
+        "src/diary_supabase.c"
+        "src/diary_tf.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        claw_cap
+        claw_core
+        json
+        nvs_flash
+        esp_http_client
+    PRIV_REQUIRES
+        esp_timer
+)

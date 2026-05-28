@@ -1,0 +1,26 @@
+menu "CLAW Capability: Diary"
+
+    config CLAW_CAP_DIARY_SCHEDULE_HOUR
+        int "Diary generation hour (0-23)"
+        depends on APP_CLAW_CAP_DIARY
+        range 0 23
+        default 23
+        help
+            Hour of day to trigger diary generation. Default 23:00.
+
+    config CLAW_CAP_DIARY_MAX_RETRIES
+        int "Max retry count per diary"
+        depends on APP_CLAW_CAP_DIARY
+        range 1 10
+        default 3
+        help
+            Max retries for Supabase sync and TF card write.
+
+    config CLAW_CAP_DIARY_DEFAULT_CONTENT
+        string "Default diary content (no chat)"
+        depends on APP_CLAW_CAP_DIARY
+        default "今天星屑在安静地陪伴着Benben，没有对话，但星光依然闪烁。\n\n晚安，好梦。"
+        help
+            Content used when no conversation is available for the day.
+
+endmenu

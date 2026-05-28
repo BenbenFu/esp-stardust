@@ -63,6 +63,9 @@
 #if CONFIG_APP_CLAW_CAP_WEB_SEARCH
 #include "cap_web_search.h"
 #endif
+#if CONFIG_APP_CLAW_CAP_DIARY
+#include "cap_diary.h"
+#endif
 #include "claw_cap.h"
 #include "claw_memory.h"
 #include "esp_check.h"
@@ -535,6 +538,16 @@ static esp_err_t app_cap_register_router_mgr(const app_claw_config_t *config,
 }
 #endif
 
+#if CONFIG_APP_CLAW_CAP_DIARY
+static esp_err_t app_cap_register_diary(const app_claw_config_t *config,
+                                        const app_claw_storage_paths_t *paths)
+{
+    (void)config;
+    (void)paths;
+    return cap_diary_register_group();
+}
+#endif
+
 #if CONFIG_APP_CLAW_CAP_SESSION_MGR
 static esp_err_t app_cap_register_session_mgr(const app_claw_config_t *config,
                                               const app_claw_storage_paths_t *paths)
@@ -599,6 +612,9 @@ static const app_capability_group_entry_t s_capability_group_entries[] = {
 #endif
 #if CONFIG_APP_CLAW_CAP_SESSION_MGR
     { "cap_session_mgr", "Session Manager", "Register session manager cap", false, NULL, app_cap_register_session_mgr },
+#endif
+#if CONFIG_APP_CLAW_CAP_DIARY
+    { "cap_diary", "Diary", "Register diary cap", false, NULL, app_cap_register_diary },
 #endif
 };
 

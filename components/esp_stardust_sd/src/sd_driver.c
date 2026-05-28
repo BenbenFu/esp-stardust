@@ -130,7 +130,7 @@ bool sd_init(sd_driver_t *sd, spi_host_device_t spi_host,
     sd->cs_pin = cs_pin;
     sd->spi_host = spi_host;
 
-    // Configure CS pin
+    // CS pin
     gpio_config_t cs_cfg = {
         .pin_bit_mask = (1ULL << cs_pin),
         .mode = GPIO_MODE_OUTPUT,
@@ -141,7 +141,7 @@ bool sd_init(sd_driver_t *sd, spi_host_device_t spi_host,
     gpio_config(&cs_cfg);
     gpio_set_level(cs_pin, 1);
 
-    // Configure SPI bus
+    // SPI bus config — no DMA, single-byte transfers only
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = mosi_pin,
         .miso_io_num = miso_pin,
@@ -152,7 +152,6 @@ bool sd_init(sd_driver_t *sd, spi_host_device_t spi_host,
     };
     ESP_ERROR_CHECK(spi_bus_initialize(spi_host, &bus_cfg, 0));  // No DMA
 
-    // Add device at 400 kHz for init
     spi_device_interface_config_t dev_cfg = {
         .mode = 0,
         .clock_speed_hz = 400000,
@@ -228,7 +227,6 @@ bool sd_init(sd_driver_t *sd, spi_host_device_t spi_host,
              sd->block_addressing ? "block" : "byte");
 
     ESP_LOGI(TAG, "SD init done");
-    sd_set_high_speed(sd);
     return true;
 }
 

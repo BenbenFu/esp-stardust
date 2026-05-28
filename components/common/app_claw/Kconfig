@@ -156,6 +156,14 @@ menu "App Claw Config"
                 Enable the session manager capability and keep app_claw's direct dependency
                 on cap_session_mgr.
 
+        config APP_CLAW_CAP_DIARY
+            bool "Enable diary capability"
+            default y
+            help
+                Enable the diary capability for Stardust companion robot.
+                Generates daily diary entries from conversation memory,
+                syncs to Supabase, and writes to TF card.
+
     endmenu
 
     menu "App Claw Lua Modules"
