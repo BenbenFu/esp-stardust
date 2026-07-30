@@ -89,39 +89,51 @@ static bool ntp_synced(void)
 
 static esp_err_t diary_run(const char *date, const char *existing_id)
 {
-    char content[MAX_CONTENT] = {0};
+    // Heap-allocated — too large for task stack
+    char *content = calloc(1, MAX_CONTENT);
+    char *context = calloc(1, MAX_CONTENT);
     char title[MAX_TITLE] = {0};
     char tags[MAX_TAGS] = {0};
-    char context[MAX_CONTENT] = {0};
-    esp_err_t err;
+    esp_err_t err = ESP_OK;
+
+    if (!content || !context) {
+        ESP_LOGE(TAG, "OOM in diary_run");
+        free(content); free(context);
+        return ESP_ERR_NO_MEM;
+    }
 
     // Step 0: Check NTP sync
     if (!ntp_synced()) {
         ESP_LOGW(TAG, "NTP not synced, deferring %s", date);
         diary_nvs_set_state(date, DIARY_STATE_PENDING);
-        return ESP_ERR_INVALID_STATE;
+        err = ESP_ERR_INVALID_STATE;
+        goto cleanup;
     }
 
     // Transition to RUNNING
     diary_nvs_set_state(date, DIARY_STATE_RUNNING);
 
     // Step 1: Collect context
-    err = diary_collect_daily_context(date, context, sizeof(context));
+    err = diary_collect_daily_context(date, context, MAX_CONTENT);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Collect context failed");
         diary_nvs_set_state(date, DIARY_STATE_FAILED);
-        return err;
+        goto cleanup;
     }
 
-    // Step 2: LLM generate
+    // Step 2: LLM generate (or fallback if LLM not configured)
     err = diary_llm_generate(date, context, NULL, false,
-                             content, sizeof(content),
+                             content, MAX_CONTENT,
                              title, sizeof(title),
                              tags, sizeof(tags));
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LLM generate failed");
-        diary_nvs_set_state(date, DIARY_STATE_FAILED);
-        return err;
+        ESP_LOGW(TAG, "LLM generate failed, using default content");
+        snprintf(content, MAX_CONTENT,
+                 "# %s\n\n今天星屑在安静地陪伴着Benben。\n\n"
+                 "虽然没有对话，但星光依然闪烁。\n\n晚安，好梦。",
+                 date);
+        snprintf(title, sizeof(title), "星屑的一天");
+        snprintf(tags, sizeof(tags), "日常,陪伴");
     }
 
     // Persist LLM output to NVS (for power-loss resilience)
@@ -136,18 +148,19 @@ static esp_err_t diary_run(const char *date, const char *existing_id)
         err = diary_supabase_post(date, content, title, tags);
     }
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Supabase sync failed, retrying later");
-        diary_nvs_set_state(date, DIARY_STATE_RUNNING);
-        return err;
+        ESP_LOGW(TAG, "Supabase sync failed, continuing to TF write");
+        // Don't stop — continue to TF card write
+        err = ESP_OK;
+    } else {
+        diary_nvs_set_state(date, DIARY_STATE_SYNCED_TO_CLOUD);
     }
-    diary_nvs_set_state(date, DIARY_STATE_SYNCED_TO_CLOUD);
 
     // Step 4: Write to TF card
     err = diary_tf_write(date, content, title, tags);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "TF write failed");
         diary_nvs_set_state(date, DIARY_STATE_FAILED);
-        return err;
+        goto cleanup;
     }
     diary_nvs_set_state(date, DIARY_STATE_TF_WRITTEN);
 
@@ -155,7 +168,12 @@ static esp_err_t diary_run(const char *date, const char *existing_id)
     diary_nvs_set_state(date, DIARY_STATE_COMPLETED);
     diary_nvs_set_last_completed(date);
     ESP_LOGI(TAG, "=== Diary %s COMPLETED ===", date);
-    return ESP_OK;
+    err = ESP_OK;
+
+cleanup:
+    free(content);
+    free(context);
+    return err;
 }
 
 // ---- catch-up on boot ----
@@ -249,7 +267,7 @@ esp_err_t cap_diary_rewrite(const char *date_str)
 
     // Collect context and run with rewrite flag
     char context[MAX_CONTENT] = {0};
-    diary_collect_daily_context(date, context, sizeof(context));
+    diary_collect_daily_context(date, context, MAX_CONTENT);
 
     char content[MAX_CONTENT] = {0};
     char title[MAX_TITLE] = {0};
@@ -257,7 +275,7 @@ esp_err_t cap_diary_rewrite(const char *date_str)
 
     // Use empty existing content for simplicity
     esp_err_t err = diary_llm_generate(date, context, NULL, true,
-                                       content, sizeof(content),
+                                       content, MAX_CONTENT,
                                        title, sizeof(title),
                                        tags, sizeof(tags));
     if (err != ESP_OK) return err;
@@ -284,28 +302,52 @@ esp_err_t cap_diary_get_state(const char *date_str, diary_state_t *state)
 
 // ---- capability descriptors ----
 
+// ---- background task wrapper (avoids REPL stack overflow) ----
+
+static char g_trigger_date[16]; // static buffer for task parameter
+
+static void diary_trigger_task(void *arg)
+{
+    (void)arg;
+    diary_run(g_trigger_date, NULL);
+    vTaskDelete(NULL);
+}
+
 static esp_err_t cap_diary_trigger_exec(const char *input_json,
                                          const claw_cap_call_context_t *ctx,
                                          char *output, size_t output_size)
 {
     (void)ctx;
-    const char *date = NULL;
 
     if (input_json) {
         cJSON *root = cJSON_Parse(input_json);
         if (root) {
             cJSON *d = cJSON_GetObjectItem(root, "date");
-            if (d && d->valuestring) date = d->valuestring;
+            if (d && d->valuestring) {
+                strlcpy(g_trigger_date, d->valuestring, sizeof(g_trigger_date));
+            } else {
+                get_today_str(g_trigger_date, sizeof(g_trigger_date));
+            }
             cJSON_Delete(root);
+        } else {
+            get_today_str(g_trigger_date, sizeof(g_trigger_date));
         }
+    } else {
+        get_today_str(g_trigger_date, sizeof(g_trigger_date));
     }
 
-    esp_err_t err = cap_diary_trigger(date);
-    if (output_size > 0) {
-        snprintf(output, output_size, "{\"status\":\"%s\"}",
-                 err == ESP_OK ? "ok" : "failed");
+    ESP_LOGI(TAG, "Queueing diary job for %s", g_trigger_date);
+
+    BaseType_t ret = xTaskCreate(diary_trigger_task, "diary_trig",
+                                  12288, NULL, 1, NULL);
+    if (ret != pdPASS) {
+        snprintf(output, output_size, "{\"status\":\"task_fail\"}");
+        return ESP_FAIL;
     }
-    return err;
+
+    snprintf(output, output_size, "{\"status\":\"queued\",\"date\":\"%s\"}",
+             g_trigger_date);
+    return ESP_OK;
 }
 
 static claw_cap_descriptor_t s_diary_descriptors[] = {

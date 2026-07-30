@@ -14,6 +14,7 @@ idf_component_register(
         json
         nvs_flash
         esp_http_client
+        esp_stardust_sd
     PRIV_REQUIRES
         esp_timer
 )

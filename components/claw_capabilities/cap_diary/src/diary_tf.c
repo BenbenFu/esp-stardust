@@ -3,91 +3,63 @@
  *
  * Writes diary to /sdcard/diaries/YYYY-MM-DD.md
  * Idempotent: overwrites existing file (same date).
- *
- * Front-end "download to TF" feature will also use the same path,
- * so overwrite semantics are by design.
  */
+
 #include "cap_diary.h"
+#include "sdcard_vfs.h"
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
+#include <stdlib.h>
 #include "esp_log.h"
 
 static const char *TAG = "cap_diary_tf";
-
-#define TF_DIARY_DIR "/sdcard/diaries"
-#define MAX_PATH      128
-#define MAX_RETRIES   3
-
-static void ensure_dir(const char *path)
-{
-    struct stat st;
-    if (stat(path, &st) != 0) {
-        mkdir(path, 0755);
-        ESP_LOGI(TAG, "Created directory: %s", path);
-    }
-}
 
 esp_err_t diary_tf_write(const char *date,
                          const char *content,
                          const char *title,
                          const char *tags)
 {
-    ensure_dir(TF_DIARY_DIR);
+    // Build virtual path for translation: /diaries/YYYY-MM-DD.md → 2026XXXX.MD
+    char vpath[64];
+    snprintf(vpath, sizeof(vpath), "/diaries/%s.md", date);
 
-    char path[MAX_PATH];
-    snprintf(path, sizeof(path), "%s/%s.md", TF_DIARY_DIR, date);
+    ESP_LOGI(TAG, "Target: %s, content=%u chars", vpath, (unsigned)strlen(content));
 
-    // Build full file content with YAML front matter
+    // Build YAML front matter
     char yaml_head[512];
-    snprintf(yaml_head, sizeof(yaml_head),
+    int yaml_len = snprintf(yaml_head, sizeof(yaml_head),
              "---\n"
              "id: %s\n"
              "date: %s\n"
              "title: %s\n"
              "tags: %s\n"
-             "source: Esp-Claw\n"
+             "source: Esp-Claw:Deepseek\n"
              "created_at: %s\n"
              "---\n\n",
-             date, date, title[0] ? title : "无标题",
-             tags[0] ? tags : "日常",
+             date, date, title[0] ? title : "untitled",
+             tags[0] ? tags : "daily",
              date);
 
-    char full_content[16384];
-    snprintf(full_content, sizeof(full_content), "%s%s", yaml_head, content);
+    // Combine into heap buffer
+    size_t clen = strlen(content);
+    size_t total = (yaml_len > 0 ? (size_t)yaml_len : 0) + clen;
+    char *buf = malloc(total + 1);
+    if (!buf) {
+        ESP_LOGE(TAG, "malloc(%u) failed", (unsigned)total);
+        return ESP_ERR_NO_MEM;
+    }
+    if (yaml_len > 0) memcpy(buf, yaml_head, yaml_len);
+    memcpy(buf + yaml_len, content, clen);
+    buf[total] = '\0';
 
-    // Write with retries
-    for (int retry = 1; retry <= MAX_RETRIES; retry++) {
-        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd < 0) {
-            ESP_LOGW(TAG, "open %s failed (retry %d/%d): errno=%d",
-                     path, retry, MAX_RETRIES, errno);
-            if (retry == MAX_RETRIES) {
-                ESP_LOGE(TAG, "TF write failed after %d retries", MAX_RETRIES);
-                return ESP_FAIL;
-            }
-            continue;
-        }
+    // Write directly through FAT32 layer (bypasses VFS to avoid callback crashes)
+    bool ok = sdcard_vfs_write_direct(vpath, buf, (uint16_t)total);
+    free(buf);
 
-        ssize_t written = write(fd, full_content, strlen(full_content));
-        close(fd);
-
-        if (written < 0) {
-            ESP_LOGW(TAG, "write %s failed (retry %d/%d): errno=%d",
-                     path, retry, MAX_RETRIES, errno);
-            if (retry == MAX_RETRIES) {
-                ESP_LOGE(TAG, "TF write failed after %d retries", MAX_RETRIES);
-                return ESP_FAIL;
-            }
-            continue;
-        }
-
-        ESP_LOGI(TAG, "Written %s (%d bytes)", path, (int)written);
+    if (ok) {
+        ESP_LOGI(TAG, "Diary saved: %s (%u bytes)", vpath, (unsigned)total);
         return ESP_OK;
     }
-
+    ESP_LOGE(TAG, "Direct write FAILED for %s", vpath);
     return ESP_FAIL;
 }

@@ -84,11 +84,10 @@ static bool vfs_translate(const char *vpath,
     }
 
     /* 2. diary: /diaries/YYYY-MM-DD.md → YYYYMMDD.MD */
-    if (strncmp(rel, "/diaries/", 10) == 0) {
-        const char *fname = rel + 10;
-        /* expect YYYY-MM-DD.md */
-        if (strlen(fname) == 14 && fname[4] == '-' &&
-            fname[7] == '-' && strcmp(fname + 11, ".md") == 0)
+    if (strncmp(vpath, "/diaries/", 9) == 0) {
+        const char *fname = vpath + 9;
+        if (strlen(fname) == 13 && fname[4] == '-' &&
+            fname[7] == '-' && strcmp(fname + 10, ".md") == 0)
         {
             char d8[9];
             snprintf(d8, 9, "%.4s%.2s%.2s", fname, fname+5, fname+8);
@@ -293,6 +292,44 @@ bool sdcard_vfs_mount(const char *mount_point,
         ESP_LOGE(TAG, "FAT32 mount failed");
         return false;
     }
+
+    /* ---- FAT32 cluster/sector diagnostic ---- */
+    ESP_LOGI(TAG, "FAT32 diag: root_clus=%lu sec_per_clus=%u data_start=%lu",
+             (unsigned long)g_fs.root_clus, g_fs.sec_per_clus,
+             (unsigned long)g_fs.abs_data);
+    // cluster → sector: abs_data + (cluster - 2) * sec_per_clus
+    uint32_t root_sec = g_fs.abs_data + (g_fs.root_clus - 2) * g_fs.sec_per_clus;
+    ESP_LOGI(TAG, "FAT32 diag: root_sec=%lu", (unsigned long)root_sec);
+    if (sd_read_sector(&g_sd, root_sec, g_sd.sec_buf)) {
+        int entries = 0;
+        for (int i = 0; i < 16 && entries < 20; i++) {
+            uint8_t fb = g_sd.sec_buf[i * 32];
+            if (fb == 0x00) break;
+            if (fb == 0xE5) continue;
+            char name[13] = {0};
+            memcpy(name, &g_sd.sec_buf[i * 32], 8);
+            memcpy(name + 8, ".", 1);
+            memcpy(name + 9, &g_sd.sec_buf[i * 32 + 8], 3);
+            for (int j = 0; j < 12; j++) if (name[j] == ' ') name[j] = 0;
+            uint32_t fc = g_sd.sec_buf[i * 32 + 20];
+            fc |= ((uint32_t)g_sd.sec_buf[i * 32 + 21] << 8);
+            fc |= ((uint32_t)g_sd.sec_buf[i * 32 + 26] << 16);
+            fc |= ((uint32_t)g_sd.sec_buf[i * 32 + 27] << 24);
+            uint32_t sz = g_sd.sec_buf[i * 32 + 28];
+            sz |= ((uint32_t)g_sd.sec_buf[i * 32 + 29] << 8);
+            sz |= ((uint32_t)g_sd.sec_buf[i * 32 + 30] << 16);
+            sz |= ((uint32_t)g_sd.sec_buf[i * 32 + 31] << 24);
+            ESP_LOGI(TAG, "FAT32 diag: [%d] '%s' clus=%lu size=%lu",
+                     i, name, (unsigned long)fc, (unsigned long)sz);
+            entries++;
+        }
+        if (entries == 0) {
+            ESP_LOGI(TAG, "FAT32 diag: root dir is empty");
+        }
+    } else {
+        ESP_LOGE(TAG, "FAT32 diag: read root sector FAILED");
+    }
+
     g_mutex = xSemaphoreCreateMutex();
     if (!g_mutex) return false;
     strncpy(g_mount_point, mount_point, sizeof(g_mount_point)-1);
@@ -316,6 +353,25 @@ bool sdcard_vfs_mount(const char *mount_point,
     }
     ESP_LOGI(TAG, "Mounted at %s", mount_point);
     return true;
+}
+
+bool sdcard_vfs_write_direct(const char *vpath, const char *data, uint16_t len)
+{
+    if (!g_mutex) {
+        ESP_LOGE(TAG, "direct write: SD not mounted");
+        return false;
+    }
+    char n8[9], e3[4];
+    if (!vfs_translate(vpath, n8, e3)) {
+        ESP_LOGE(TAG, "direct write: translate failed for %s", vpath);
+        return false;
+    }
+    xSemaphoreTake(g_mutex, portMAX_DELAY);
+    bool ok = fat32_write_file(&g_fs, n8, e3, data, len);
+    xSemaphoreGive(g_mutex);
+    ESP_LOGI(TAG, "direct write: %s → %.8s.%.3s (%u bytes) %s",
+             vpath, n8, e3, (unsigned)len, ok ? "OK" : "FAIL");
+    return ok;
 }
 
 void sdcard_vfs_unmount(void)

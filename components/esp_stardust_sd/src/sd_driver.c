@@ -192,7 +192,7 @@ bool sd_init(sd_driver_t *sd, spi_host_device_t spi_host,
 
     // ACMD41: init
     bool acmd41_ok = false;
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 3000; i++) {  // 1000 → 3000 (30s max)
         sd_send_cmd(sd, 55, 0);
         sd_deselect(sd);
         if (sd_send_cmd(sd, 41, 0x40000000) == 0x00) {
@@ -289,41 +289,10 @@ bool sd_write_sector_raw(sd_driver_t *sd, uint32_t sector, const uint8_t *buf)
 
 bool sd_write_sector(sd_driver_t *sd, uint32_t sector, const uint8_t *buf)
 {
-    uint8_t verify_buf[512];
-    if (!sd_write_sector_raw(sd, sector, buf)) {
-        ESP_LOGE(TAG, "Write fail LBA %lu", sector);
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(200));
-
-    for (int retry = 0; retry < 4; retry++) {
-        if (retry > 0) {
-            ESP_LOGW(TAG, "Verify retry %d LBA %lu", retry, sector);
-            vTaskDelay(pdMS_TO_TICKS(200));
-        }
-
-        if (!sd_read_sector(sd, sector, verify_buf)) {
-            ESP_LOGE(TAG, "Verify read fail LBA %lu", sector);
-            continue;
-        }
-
-        if (memcmp(verify_buf, buf, 512) == 0) {
-            if (retry > 0) {
-                ESP_LOGI(TAG, "Verify ok on retry %d LBA %lu", retry, sector);
-            }
-            return true;
-        }
-
-        ESP_LOGD(TAG, "LBA %lu verify mismatch:", sector);
-        ESP_LOGD(TAG, "  Write: %02X%02X%02X%02X ...",
-                 buf[0], buf[1], buf[2], buf[3]);
-        ESP_LOGD(TAG, "  Read:  %02X%02X%02X%02X ...",
-                 verify_buf[0], verify_buf[1], verify_buf[2], verify_buf[3]);
-    }
-
-    ESP_LOGE(TAG, "Data verify mismatch LBA %lu (4 retries)", sector);
-    return false;
+    // CMD24 returns data-response token 0x05 on success — sufficient.
+    // Skip post-write read-back verification (CMD17 fails on some cards
+    // after internal write-in-progress state).
+    return sd_write_sector_raw(sd, sector, buf);
 }
 
 bool sd_wait_card_ready(sd_driver_t *sd, uint32_t timeout_ms)

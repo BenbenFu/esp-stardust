@@ -35,6 +35,17 @@ bool sdcard_vfs_mount(const char *mount_point,
  */
 void sdcard_vfs_unmount(void);
 
+/**
+ * Write a file directly to FAT32, bypassing the VFS layer.
+ * Converts virtual path to 8.3 name and calls fat32_write_file.
+ *
+ * @param vpath  Virtual path, e.g. "/diaries/2026-07-30.md"
+ * @param data   File content
+ * @param len    Content length
+ * @return true on success
+ */
+bool sdcard_vfs_write_direct(const char *vpath, const char *data, uint16_t len);
+
 #ifdef __cplusplus
 }
 #endif

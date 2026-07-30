@@ -559,12 +559,14 @@ uint16_t fat32_read_file(fat32fs_t *fs, const char *name8, const char *ext3,
     while (read_bytes < to_read) {
         uint32_t sec = fat_cluster_to_sector(fs, current_cluster);
         for (int s = 0; s < fs->sec_per_clus && read_bytes < to_read; s++) {
-            if (!sd_read_sector(fs->sd, sec + s, (uint8_t *)buf + read_bytes)) {
+            // Read into internal sector buffer, then copy needed bytes
+            if (!sd_read_sector(fs->sd, sec + s, fs->sd->sec_buf)) {
                 buf[read_bytes] = '\0';
                 return read_bytes;
             }
             uint16_t chunk = 512;
             if (read_bytes + chunk > to_read) chunk = to_read - read_bytes;
+            memcpy(buf + read_bytes, fs->sd->sec_buf, chunk);
             read_bytes += chunk;
         }
         current_cluster = fat_read_entry(fs, current_cluster);
@@ -628,8 +630,11 @@ bool fat32_write_file(fat32fs_t *fs, const char *name8, const char *ext3,
                 continue;
             }
             if (memcmp(ent, pn, 8) == 0 && memcmp(ent + 8, pe_ext, 3) == 0) {
-                ESP_LOGI(TAG, "SKIP: %.8s.%.3s exists", name8, ext3);
-                return false;
+                // File exists — reuse this slot (overwrite)
+                ESP_LOGI(TAG, "OVERWRITE: %.8s.%.3s exists, reusing slot", name8, ext3);
+                empty_slot = i;
+                slot_sector = root_sec + s;
+                s = fs->sec_per_clus; break;
             }
         }
     }
